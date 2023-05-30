@@ -1,0 +1,445 @@
+---
+title: "Analysis of Air BnB data"
+author: "Will Harrison"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+fontsize: 12pt
+---
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+First set up the required packages and load in the data.
+
+```{r, message = FALSE, warning=FALSE}
+library(ggplot2)
+library(dplyr)
+library(boot)
+library(patchwork)
+library(MASS)
+```
+
+```{r}
+bar_wday <- read.csv("barcelona_weekdays.csv") # read in the data
+bar_wend <- read.csv("barcelona_weekends.csv")
+lon_wday <- read.csv("london_weekdays.csv")
+lon_wend <- read.csv("london_weekends.csv")
+```
+
+## Analysing the Airbnb Price Data in European Cities
+
+**Task 1:** *Are there any missing data in any of the datasets? Comment on if there is/are any variable/variables that may not be useful for further analysis. Calculate the average listing price per person per night for each room type for the weekdays data in Barcelona.* [3 marks]
+
+```{r}
+summary(bar_wday) # summary of one of the datasets
+```
+
+- Looking at the summary of the Barcelona weekdays data, there are no missing values in any of the variables. No missing data is found upon inspection of the summaries of the other datasets either.
+
+- The variable `X` is just the observation number, so won't be useful in any further analysis. 
+
+- From the data descriptions, `attr_index_norm` and `rest_index_norm` look to be better than their counterparts `attr_index` and `rest_index` - if comparisons are to be made between Barcelona and London, these metrics to be on the same scale to draw any meaningful comparisons or predictions. 
+
+- `room_shared` and `room_private` are just dummy variables whose information is captured in `room_type`, these two variables won't really be useful in analysis or modelling. 
+
+- `lat` and `lng` are specific to each city and so won't be useful for comparisons between the two cities.
+
+`realSum` is the price for two nights for two people, so the price of one night for two people is `realSum/2`, and the price of one night for one person is `realSum/4`. Take the average of this across each room type in the Barcelona weekdays data.
+
+```{r}
+bar_wday %>% 
+  group_by(room_type) %>%
+  summarise(price = mean(realSum/4))
+```
+- It is found that renting an entire house/apartment is a lot more expensive than just one room, and a private room on average costs more than a shared room.
+
+**Task 2:** *Using appropriate exploratory tools such as tables/graphs/summary statistics comment on the relationship between cleanliness and guest satisfaction in the weekdays data in Barcelona. Also comment on the relationship between superhost and guest satisfaction using exploratory analysis on the weekdays data in London.* [4 marks]
+
+To look at the relationship between cleanliness and guest satisfaction, use a boxplot to examine how cleanliness rating affects the distribution of guest satisfaction.
+
+```{r}
+ggplot(data = bar_wday, aes(x = cleanliness_rating,
+                            y = guest_satisfaction_overall,
+                            group = cleanliness_rating)) +
+  geom_boxplot() +
+  labs(title = "Boxplots of cleanliness rating vs guest satisfaction rating",
+       x = "Cleanliness rating (1-10)",
+       y = "Guest satisfaction rating (1-100)") +
+  scale_x_continuous(breaks = (0:10)) + # add more breaks for interpretation
+  scale_y_continuous(breaks = (0:10)*10) 
+```
+
+- No BnBs considered in the Barcelona weekday data had cleanliness ratings of 0, 1 or 3.
+
+- Higher cleanliness ratings are associated with higher median guest satisfaction. The guest satisfaction distribution of higher cleanliness ratings also tends to be more condensed, this could be explained a far smaller samples (so larger variance) of BnBs with cleanliness ratings lower than 6. This suggests that there is a positive correlation between cleanliness and guest satisfaction. 
+
+Also examine the correlation between the two:
+
+```{r}
+cor(bar_wday$cleanliness_rating, bar_wday$guest_satisfaction_overall)
+```
+- This reinforces that cleanliness and guest satisfaction are strongly positively correlated.
+
+To examine the relationship between superhost status and guest satisfaction, create a violin plot to determine how superhost status affects the distribution of guest satisfaction ratings.
+
+```{r}
+ggplot(data = lon_wday, aes(x = host_is_superhost,
+                            y = guest_satisfaction_overall,
+                            group = host_is_superhost)) +
+  geom_violin() +
+  labs(title = "Violin plots of superhost status vs guest satisfaction rating",
+       x = "Superhost status",
+       y = "Guest satisfaction rating (1-100)") +
+  scale_y_continuous(breaks = (0:10)*10) +
+  scale_x_discrete(labels = c(False = "Not superhost",
+                              True = "Superhost"))
+```
+
+- From the violin plots it can be seen that there does seem to be a relationship between superhost status and guest satisfaction. The distribution of guest satisfaction for superhosts is quite a bit more skewed towards perfect guest satisfaction than BnBs without the superhost status. The average guest satisfaction for superhosts is higher than non-superhosts.
+
+- Superhosts also had a higher minimum satisfaction than non-superhosts (~40 vs ~20).
+
+
+**Task 3:** *Use an appropriate plot to illustrate the distribution of listed room prices per room type for the Barcelona and London weekends datasets. You should provide separate plots for each city. Comment on what you observe.* [3 marks]
+
+Create a density plot for room price for each room type using either cities day datasets, the right limit for price on the plots has been set to 1250. Beyond this, there are a few values but the densities are all approximately 0. This zooms the plot in on the interesting part.
+
+```{r, warning = F}
+p1 <- ggplot(data = bar_wend, aes(x = realSum, 
+                            colour = room_type)) +
+  geom_density(size = 0.8) +
+  labs(title = "Barcelona",
+       x = "Price (€)",
+       y = "Density",
+       colour = "Room type") +
+    theme(plot.title = element_text(hjust = 0.5)) +
+  xlim(0,1250)
+
+p2 <- ggplot(data = lon_wend, aes(x = realSum, 
+                            colour = room_type)) +
+  geom_density(size = 0.8) +
+  labs(title = "London",
+       x = "Price (€)",
+       y = "Density",
+       colour = "Room type") +
+    theme(plot.title = element_text(hjust = 0.5)) +
+  xlim(0,1250)
+
+plt <- p1 + p2 & theme(legend.position = "bottom") # put common key
+plt + plot_layout(guides = "collect") +            # at bottom of the plot
+  plot_annotation(title = 
+                    "Density plots of weekend BnB prices by room type")
+```
+
+- In both cities on weekends the distribution of prices for entire home/apartments is higher than private rooms and shared rooms, however in London, the price distributions of private and shared rooms is much more similar than in Barcelona.
+
+- Comparing the distributions of each room type by city, the distributions seem to be centred around similar values for private/shared rooms. For entire home/apartment, Barcelona's distribution is more symmetric, whilst London's is right skewed.
+
+- London's distributions look to be more heavily right skewed, suggesting that they may cost more on average.
+
+**Task 4:** *Perform an appropriate statistical test to compare the listed room price in London vs Barcelona on weekends. You may combine the data across room types to perform the statistical test. Discuss what assumptions you make to perform the test. Comment on the appropriateness of the assumptions made.* [6 marks]
+
+Test the hypothesis that the mean Air BnB room price in London are more expensive than Barcelona on weekends. Let $\mu_{L}$ and $\mu_{B}$ be the mean price of rooms in London and Barcelona on weekends respectively.
+
+The two hypotheses being tested are then:
+
+
+$H_{0}: \mu_{L} \leq \mu_{B}$
+  
+$H_{1}: \mu_{L} > \mu_{B}$.
+
+Use an unpaired t-test as the test statistic, considering data from all room types together for this test. By omitting the `var.equal = TRUE` command in R, a Welch's t-test can be used and the usual assumption of a t-test that the variances of the samples are equal is dropped. There is still the assumption that the mean room price of the samples are normally distributed - the central limit theorem means this assumption is OK.
+
+Proceed with the test:
+
+```{r}
+t.test(lon_wend$realSum, bar_wend$realSum, alternative = "greater")
+```
+Thus we reject the null hypothesis at the 5% level and conclude that the average price for a BnB on weekends in London is higher than in Barcelona.
+
+**Task 5:** *Use a generalised linear model (GLM) to study the differences between the listed room prices on weekdays and weekends for Barcelona. Check your modelling assumptions.* [10 marks]
+
+Convert the columns containing categorical variables to factors - in the original data, `multi` and `biz` are numerical variables with value 0 or 1 and so need to be converted so that they are properly treated. Also do this for the London data now, as it may be needed for any models we fit later.
+
+```{r}
+cols <- c("biz", "multi", "host_is_superhost") # select columns to convert
+bar_wday[cols] <- lapply(bar_wday[cols], as.factor) # convert to factor
+bar_wend[cols] <- lapply(bar_wend[cols], as.factor) # in all individual
+lon_wday[cols] <- lapply(lon_wday[cols], as.factor) # dataframes
+lon_wend[cols] <- lapply(lon_wend[cols], as.factor)
+```
+
+Make a new dataset by combining the Barcelona weekday and day datasets, include a new column that indicates whether the data is from the day, this will be used as a factor in the model. 
+
+```{r}
+barc <- bind_rows(bar_wend, bar_wday, .id = 'day') # stack datasets together
+barc$day[barc$day==1] <- "Weekend"
+barc$day[barc$day==2] <- "Weekday"
+```
+
+The new data frame includes a column `day` which indicates with a character (either `"Weekend"` or `"Weekday"`) whether the observation was originally part of the weekday or weekend dataset.
+
+Start with a linear model with all relevant predictors (exclude variables mentioned in Task 1). Use the step function to remove statistically insignificant parameters. Always include the factor `day` as this will be how to study the difference between weekdays and weekends. 
+
+In Task 2, it was found that cleanliness rating and guest satisfaction exhibit a linear relationship, due to collinearity only one of these terms should be included. Task 2 also suggested there may be an interaction between guest satisfaction and superhost status. Choose to drop cleanliness rating and include the interaction between guest satisfaction and superhost status.
+
+```{r}
+lm_bar_full <- lm(realSum ~ room_type + person_capacity + multi + biz + 
+                 bedrooms + dist + metro_dist + attr_index_norm + 
+                 rest_index_norm + host_is_superhost*guest_satisfaction_overall 
+                 + day, 
+               data = barc)
+```
+
+Use the step function to drop statistically insignificant parameters, the scope argument ensures that day is never dropped.
+
+```{r}
+lm_bar_step <- step(lm_bar_full, trace = 0, 
+                 scope = list(lower = ~ day + room_type))
+summary(lm_bar_step)
+```
+
+- A look at the summary shows that the `day` factor is highly significant, suggesting that there is a difference between weekday and weekend pricing.
+
+Look at the model diagnostics:
+
+```{r}
+par(mfrow = c(1,2))
+plot(lm_bar_step, 1:4)
+```
+- Residual vs fitted: Looks OK, the points are somewhat evenly distributed above and below 0. There are some observations with especially high residuals, and in general the residuals are on quite a large scale. There isn't evidence of non-linearity.
+
+- Normal Q-Q: shows the data is right-skewed, this is be expected as the distribution of price is right skewed.
+
+- Scale-location: there is some evidence of variance increasing with the mean. The points also show some clustering, which is to be expected from the observations made when examining the relationship between room type and price.
+
+- Cooks distance: there are some outliers that have larger cooks distance, refitting the model without these observations doesn't change the model that much, so include them for now.
+
+A check of partial residual plots of each variables against the residuals does not suggest that any new transformations or interactions should be made to the explanatory variable.
+
+Fit the model with the response logged as the distribution of price is right skewed and examine if this helps rectify some of the violations in the modelling assumptions.
+
+```{r}
+lm_bar_log <- lm(log(realSum+0.1) ~ room_type + biz + bedrooms + dist +
+                rest_index_norm + host_is_superhost*guest_satisfaction_overall
+                + day,
+                data = barc)
+par(mfrow = c(1,2))
+plot(lm_bar_log,1:4)
+```
+- The residuals vs fitted and scale location look better for this model. The Q-Q plot still shows some violation of the normality but looks better than before.
+
+Look at the model summary:
+
+```{r}
+summary(lm_bar_log)
+```
+To study the difference in price between room prices in Barcelona on weekends and weekdays, look at the `dayWeekend` coefficient. This corresponds to the increase in the log of the room price on weekends compared to weekdays. Its exponential is therefore the multiplicative increase in price on weekends.
+
+```{r}
+exp(lm_bar_log$coefficients["dayWeekend"])
+```
+- A typical BnB room in Barcelona's price will increase by around 11.6% on days when controlling for other factors. 
+
+What variability is there around this estimate?
+
+Construct a 95% confidence interval of the price difference:
+
+```{r}
+sapply(confint(lm_bar_log)["dayWeekend",], exp)
+```
+- This means that whilst controlling for other factors that influence price, the model suggests that a typical BnB in Barcelona increases by around 8.6-14.7%.
+
+**Task 6:** *Fit a GLM to the listed room price on weekdays in Barcelona. Use this model to predict the listed room prices for Barcelona on weekends. Calculate the prediction error and the cross validation error (perform 10-fold cross validation). Comment on your findings.* [5 marks]
+
+Proceed with the previous model (without day factor now):
+
+```{r}
+lm_barwday <- glm(log(realSum+0.1) ~ room_type + biz + bedrooms + dist + 
+             rest_index_norm + lat + 
+             host_is_superhost*guest_satisfaction_overall, 
+           data = bar_wday)
+```
+
+- The diagnostic plots look very similar to the model fitted to the model to the full dataset, so won't be shown here.
+
+Now make predictions on the Barcelona weekend dataset.
+
+```{r}
+pred_price_barday <- predict(lm_barwday, newdata = bar_wend)
+head(pred_price_barday, 3)
+```
+Note: room price has been logged, hence the predictions for the actual room prices are:
+
+```{r}
+head(exp(pred_price_barday),3)
+```
+
+Now calculate the prediction and cross-validation error, since the response in the model is logged, transform back to the original scale.
+
+Calculate the prediction error on the training dataset (weekdays):
+
+```{r}
+err.train <- mean((bar_wday$realSum - exp(lm_barwday$fitted.values))^2)
+err.train
+sqrt(err.train)
+```
+
+And also the prediction error on the test dataset (weekends):
+
+```{r}
+err.test <- mean((bar_wend$realSum - exp(pred_price_barday))^2)
+err.test
+sqrt(err.test)
+```
+The cross validation on the training dataset using K = 10 folds is:
+
+```{r}
+cost <- function(obs, fit) mean( (obs - exp(fit))^2 )
+err.cv <- cv.glm(data = bar_wday, cost, glmfit = lm_barwday, K = 10)$delta[1]
+err.cv
+sqrt(err.cv)
+```
+- The prediction error on the test dataset is a lot larger than the training dataset, and the cross-validation error is only slightly larger than the prediction error on the training dataset. This can be explained by our findings in task 6 - we found that there was quite a substantial increase in price on weekends, so it is expected that the model underestimates room price on the weekend dataset. In the cross-validation error, only weekday data is being used, so no such problem occurs and its thus its magnitude is more comparable to the prediction error on the weekday data.
+
+- These errors are quite high in magnitude, and their square roots give a notion of the average 'distance' from each point. Hence our model may not be able to predict all AirBnB prices with a good degree of accuracy. Experiments with a Gamma glm did not improve much either.
+
+Is the model completely useless? Not entirely - if we restrict the data to discount higher prices, e.g. all those over, say, €1000 and recalculate the prediction errors, they are a lot lower. For example the training error is
+
+```{r}
+bar_wday1000 <- bar_wday[-which(bar_wday$realSum > 1000),]
+pred_barwday1000 <- lm_barwday$fitted.values[-which(bar_wday$realSum > 1000)]
+sqrt( mean( (bar_wday1000$realSum - exp(pred_barwday1000))^2 ) )
+```
+So the model is OK at predicting prices in the €0 - €1000 range (this error is still a bit high), the larger prediction error on the full data is partly due to the model's poor performance in predicting higher valued listings.
+
+**Task 7:** *Use plots or a statistical test to comment on whether the guest satisfaction varies between the weekdays and the weekends in Barcelona. Further, define a GLM that may be used to predict guest satisfaction.* [6 marks]
+
+```{r}
+ggplot(data = barc, aes(x = day, y = guest_satisfaction_overall)) +
+  geom_boxplot() +
+  labs(title = "Boxplots of guest satisfaction on weekdays and days",
+       x = "Day of the week",
+       y = "Guest satisfaction rating (1-100)")
+```
+
+- The distributions of guest satisfaction looks almost identical, therefore conclude that it does not vary between weekdays and weekends in Barcelona.
+
+Guest satisfaction is a count variable, so fit a poisson GLM. 
+
+In Task 2, a strong linear relationship between cleanliness rating and guest satisfaction was found. It was also found that superhost status had an influence on guest satisfaction motivating inclusion of these variables in the model. Use the previously created dataset `barc` containing both weekend and weekday entries.
+
+Since the poisson distribution is right skewed, and guest satisfaction is left skewed, instead model `100 - guest_satisfaction_overall`. This quantity will still be on the scale of 1-100, but is now also right skewed. To derive the predicted guest satisfaction score, simply calculate 100 - predicted value.
+
+
+```{r}
+guest_full <- glm(100 - guest_satisfaction_overall ~ realSum + room_type + 
+                    person_capacity + host_is_superhost + cleanliness_rating +
+                    multi + biz + bedrooms + dist + metro_dist + 
+                    attr_index_norm + rest_index_norm + lng + lat + day, 
+                  family = poisson, 
+                  data = barc)
+```
+
+Use the step function to reduce the model:
+
+```{r}
+guest_step <- step(guest_full, trace = 0, 
+                   score = list(lower  = 
+                                  ~ cleanliness_rating + host_is_superhost))
+summary(guest_step)
+```
+
+Take a look at the diagnostics:
+
+```{r}
+par(mfrow = c(1,2))
+plot(guest_step, 1:4)
+```
+
+- Residuals vs fitted shows heteroscedasticity, the variance is increasing with the mean.
+
+- Normal Q-Q looks OK, the left tail of the distribution looks good (this is actually better than when trying to model guest satisfaction instead). The right tail shows some departure from the poisson distribution.
+
+- Scale location again shows heteroscedasticity. The fact that there is some pattern at low predicted values is due to the fact that we are using count data and so is not cause for concern.
+
+- Cooks distance indicates a few outliers. Attempting fits without the outliers do not change the model much, so continue with them included.
+
+Fitting a quasipoisson model with the same parameters shows there is also overdispersion (the dispersion parameter is estimated to be around 3.5), try fitting a negative binomial model to account for this:
+
+```{r}
+guest_nb <- glm(formula = (100 - guest_satisfaction_overall) ~ realSum + 
+                  room_type + host_is_superhost + cleanliness_rating + multi + 
+                  biz + metro_dist + attr_index_norm + rest_index_norm + lng + 
+                  lat, family = negative.binomial(theta = 1), 
+    data = barc)
+
+summary(guest_nb)
+```
+
+```{r}
+par(mfrow = c(1,2))
+plot(guest_nb, 1:4)
+```
+
+- The negative binomial model diagnostics do look a little better, in particular residuals look to be smaller in magnitude, giving the model better predictive performance. The heteroscedasticity is still present, but is a quite a bit less pronounced.
+
+Settle on this model as the glm we can use to predict guest satisfaction.
+
+**Task 8:** *Predict the London weekend prices for different room types based on the weekends price model for Barcelona. Calculate the prediction error and comment on what you observe.* [5 marks]
+
+Recall the price model for Barcelona and fit this to the weekend data in Barcelona. We drop the latitude term, as the values for this will be different in London.
+
+```{r}
+lm_barwend <- lm(log(realSum+0.1) ~ room_type + biz + bedrooms + 
+             dist + rest_index_norm  + 
+             host_is_superhost*guest_satisfaction_overall, 
+           data = bar_wend)
+```
+
+- Again, diagnostic plots are very similar to the log model in Task 5.
+
+Now use this model to predict weekend prices for different room types. Make predictions for each observation in the London weekend data. Average over each room type to get obtain a predicted price for different room types.
+
+```{r}
+pred_price_lonwend <- predict(lm_barwend, newdata = lon_wend)
+head(exp(pred_price_lonwend))   # since this is a log model, must exponentiate
+```
+
+
+```{r}
+cbind.data.frame(room_type = lon_wend$room_type, # label each prediction with
+  prediction = exp(pred_price_lonwend)) %>%      # room type
+  group_by(room_type) %>%
+  summarise(price = mean(prediction))            # average of each room type
+```
+
+- Looking back at the density plot for London in Task 3, these look like quite reasonable predictions.
+
+Calculate the prediction error:
+
+```{r}
+err.lon <- mean( (lon_wend$realSum - exp(pred_price_lonwend))^2 )
+err.lon
+sqrt(err.lon)
+```
+
+The prediction error is quite high, so whilst the average across each room price looks very reasonable, the individual predictions aren't always great. This is expected as the same model didn't perform well in predicting higher priced listings before on the full Barcelona dataset.
+
+**Task 9:** *Provide a non-scientific summary of your analysis in Task 5 (300 words maximum).* [4 marks]
+
+The price of an AirBnB is influenced by a range of different factors ¹ : guest capacity, whether the listing is a private room or an entire accommodation, and its proximity to the city centre to name a few. Our analysis focused on the question of whether there was a difference in price between weekdays and weekends. 
+
+The data studied contains data from AirBnBs in Barcelona and is a subset of the data investigated by Gyódi, K., & Nawaro, Ł. (2021).²  A generalised linear model was fitted to this data to predict each AirBnB’s listing price based on relevant variables in the data, including a variable that determined whether the listing was for a weekday or for the weekend.
+
+It was found that the variable indicating whether the listing was on a weekday or a weekend was significant, suggesting that it does indeed have a role in predicting price. We further estimated that the increase in listing price on a weekend is within the range of 8.6% - 14.7% after controlling for other factors such as guest satisfaction or room type that were found to explain price; with our specific model's estimate being 11.6%.
+
+It is worth mentioning that this is specific to AirBnBs in Barcelona; whether the same magnitude of change is seen in other locations is an avenue for future work. There may also be additional factors not present in the data that need consideration, for example recently listed BnB’s may charge a lower price to attract initial customers.
+
+
+1. Toader, V., Negrușa, A.L., Bode, O.R. and Rus, R.V., 2022. Analysis of price determinants in the case of Airbnb listings. *Economic Research-Ekonomska Istraživanja, 35(1)*, pp.2493-2509.
+
+2. Gyódi, K. and Nawaro, Ł., 2021. Determinants of Airbnb prices in European cities: A spatial econometrics approach. *Tourism Management*, 86, p.104319.
+
